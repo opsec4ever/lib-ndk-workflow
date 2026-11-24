@@ -75,7 +75,18 @@ jobs:
         run: |
           set -euo pipefail
           SDKMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+
+          # sdkmanager exits after accepting the licenses, so 'yes' may receive SIGPIPE.
+          # Check sdkmanager's status rather than failing on the producer's expected SIGPIPE.
+          set +e
           yes | "$SDKMANAGER" --licenses
+          LICENSE_STATUS=${PIPESTATUS[1]}
+          set -e
+          if [ "$LICENSE_STATUS" -ne 0 ]; then
+            echo "sdkmanager --licenses failed with exit code $LICENSE_STATUS"
+            exit "$LICENSE_STATUS"
+          fi
+
           "$SDKMANAGER" --install \
             "platforms;android-${ANDROID_API}" \
             "ndk;${NDK_VERSION}" \
