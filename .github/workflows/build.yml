@@ -1,0 +1,98 @@
+name: Build Android Libraries
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "**.cpp"
+      - "**.c"
+      - "**.h"
+      - "**.hpp"
+      - "CMakeLists.txt"
+      - "cmake/**"
+      - ".github/workflows/build.yml"
+  pull_request:
+    paths:
+      - "**.cpp"
+      - "**.c"
+      - "**.h"
+      - "**.hpp"
+      - "CMakeLists.txt"
+      - "cmake/**"
+      - ".github/workflows/build.yml"
+  workflow_dispatch:
+    inputs:
+      ndk_version:
+        description: Android NDK version
+        required: true
+        default: "27.2.12479018"
+        type: string
+      android_api:
+        description: Android API level
+        required: true
+        default: "24"
+        type: string
+      build_type:
+        description: CMake build type
+        required: true
+        default: Release
+        type: choice
+        options:
+          - Release
+          - Debug
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build ${{ matrix.abi }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        abi:
+          - arm64-v8a
+          - armeabi-v7a
+          - x86_64
+
+    env:
+      NDK_VERSION: ${{ inputs.ndk_version || '27.2.12479018' }}
+      ANDROID_API: ${{ inputs.android_api || '24' }}
+      BUILD_TYPE: ${{ inputs.build_type || 'Release' }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android NDK and CMake
+        run: |
+          sdkmanager --install "ndk;${NDK_VERSION}" "cmake;3.22.1"
+          echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/$NDK_VERSION" >> "$GITHUB_ENV"
+
+      - name: Configure
+        run: |
+          cmake -S . -B "build/${{ matrix.abi }}" \
+            -DCMAKE_TOOLCHAIN_FILE="$ANDROID_NDK_HOME/build/cmake/android.toolchain.cmake" \
+            -DANDROID_ABI="${{ matrix.abi }}" \
+            -DANDROID_PLATFORM="android-${ANDROID_API}" \
+            -DANDROID_STL=c++_static \
+            -DCMAKE_BUILD_TYPE="$BUILD_TYPE" \
+            -DCMAKE_LIBRARY_OUTPUT_DIRECTORY="$GITHUB_WORKSPACE/build/libs/${{ matrix.abi }}" \
+            -DCMAKE_ARCHIVE_OUTPUT_DIRECTORY="$GITHUB_WORKSPACE/build/libs/${{ matrix.abi }}"
+
+      - name: Compile
+        run: cmake --build "build/${{ matrix.abi }}" --config "$BUILD_TYPE" --parallel
+
+      - name: Upload libraries
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-libraries-${{ matrix.abi }}
+          path: |
+            build/libs/${{ matrix.abi }}/*.so
+            build/libs/${{ matrix.abi }}/*.a
+          if-no-files-found: error
+          retention-days: 14
